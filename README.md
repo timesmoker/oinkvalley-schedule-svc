@@ -1,6 +1,6 @@
-# event-svc
+# schedule-svc
 
-Spring Boot **일정(이벤트)·태그 REST API**다. PostgreSQL에 `tags`, `tag_members`, `events`, `event_tags`, `event_participants`, `user_hidden_tags` 를 두고, **JWT(HS256)** 로 상태 없이 인증한다. 클라이언트는 **`Authorization: Bearer <token>`** 만내며, 쿠키에 실린 토큰은 이 서비스에서 직접 읽지 않는다.
+Spring Boot **일정(스케줄)·태그 REST API**다. PostgreSQL에 `tags`, `tag_members`, `schedules`, `schedule_tags`, `schedule_participants`, `user_hidden_tags` 를 두고, **JWT(HS256)** 로 상태 없이 인증한다. 클라이언트는 **`Authorization: Bearer <token>`** 만내며, 쿠키에 실린 토큰은 이 서비스에서 직접 읽지 않는다.
 
 의존성·JDK·플러그인 버전은 **[build.gradle](build.gradle)** 을 본다.
 
@@ -48,10 +48,10 @@ Spring Boot **일정(이벤트)·태그 REST API**다. PostgreSQL에 `tags`, `ta
 
 | 경로 | 역할 |
 | --- | --- |
-| `controller/` | `EventController`, `TagController`, `HealthController`, `EventExceptionHandler` |
-| `service/` | 도메인 로직, `EventMapper`, `CalendarTimeUtil` |
+| `controller/` | `ScheduleController`, `TagController`, `HealthController`, `ScheduleExceptionHandler` |
+| `service/` | 도메인 로직, `ScheduleMapper`, `CalendarTimeUtil` |
 | `client/` | `UserProfileClient` → profile-svc gRPC |
-| `dto/event/`, `dto/tag/` | 요청·응답 레코드 |
+| `dto/schedule/`, `dto/tag/` | 요청·응답 레코드 |
 | `db/domain/` | JPA 엔티티 |
 | `db/repository/` | Spring Data JPA |
 | `security/` | JWT 검증 (`JwtUtil`, `JwtAuthenticationFilter`) |
@@ -67,7 +67,7 @@ Spring Boot **일정(이벤트)·태그 REST API**다. PostgreSQL에 `tags`, `ta
 - JWT는 **`Authorization: Bearer <token>`** 만 처리한다.
 - **규칙 (`SecurityConfig`):**
   1. `GET /health` → 허용.
-  2. `GET /events` → 허용(비로그인은 **PUBLIC** 일정만, `EventAccessService`·`scope` 로 필터).
+  2. `GET /schedules` → 허용(비로그인은 **PUBLIC** 일정만, `ScheduleAccessService`·`scope` 로 필터).
   3. 나머지 → 인증 필요.
 
 ### 엔드포인트
@@ -75,10 +75,10 @@ Spring Boot **일정(이벤트)·태그 REST API**다. PostgreSQL에 `tags`, `ta
 | 메서드 | 경로 | 인증 | 비고 |
 | --- | --- | --- | --- |
 | GET | `/health` | 불필요 | |
-| GET | `/events?from&to&scope&tagIds` | 선택 | `scope=visible`(기본) \| `mine`. 비로그인 PUBLIC만 |
-| POST | `/events` | 필요 | 참여자 이메일 → `event_participants` |
-| PUT | `/events/{id}` | 필요 | 소유자만 |
-| DELETE | `/events/{id}` | 필요 | 소유자만 |
+| GET | `/schedules?from&to&scope&tagIds` | 선택 | `scope=visible`(기본) \| `mine`. 비로그인 PUBLIC만 |
+| POST | `/schedules` | 필요 | 참여자 이메일 → `schedule_participants` |
+| PUT | `/schedules/{id}` | 필요 | 소유자만 |
+| DELETE | `/schedules/{id}` | 필요 | 소유자만 |
 | GET | `/tags` | 필요 | |
 | GET | `/tags/discover?email=` | 필요 | SHARED/PUBLIC USER 태그 |
 | POST | `/tags` | 필요 | |
