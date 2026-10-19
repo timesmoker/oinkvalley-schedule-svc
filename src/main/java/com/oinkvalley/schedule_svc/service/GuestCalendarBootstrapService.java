@@ -17,7 +17,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-/** 게스트 계정용 샘플 일정. {@code POST /schedules/guest-bootstrap} 전용. 샘플 SOT: Helm chart. */
+/** 게스트 계정용 샘플 일정. 트리거: {@code auth.guest.created}. 샘플 SOT: Helm chart. */
 @Service
 @RequiredArgsConstructor
 public class GuestCalendarBootstrapService {
