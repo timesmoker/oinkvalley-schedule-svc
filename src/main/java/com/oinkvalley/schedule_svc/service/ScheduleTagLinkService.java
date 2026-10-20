@@ -1,6 +1,5 @@
 package com.oinkvalley.schedule_svc.service;
 
-import com.oinkvalley.schedule_svc.config.CalendarProperties;
 import com.oinkvalley.schedule_svc.db.domain.ScheduleTag;
 import com.oinkvalley.schedule_svc.db.domain.Tag;
 import com.oinkvalley.schedule_svc.db.domain.TagType;
@@ -26,14 +25,12 @@ public class ScheduleTagLinkService {
     private final TagRepository tagRepository;
     private final TagService tagService;
     private final ScheduleAccessService scheduleAccessService;
-    private final CalendarProperties calendarProperties;
 
     /**
      * 접근 가능한 태그만 파싱한 뒤 ETC 규칙 적용.
      * 일반 태그가 있으면 ETC 제거, 없으면 소유자 ETC 1개.
      */
     public List<Long> resolveScheduleTagIds(Long actorUserId, long scheduleOwnerId, List<String> rawTags) {
-        List<Long> defaultIds = calendarProperties.defaultVisibleTagIds();
         long etcId = tagService.ensureEtcTag(scheduleOwnerId).getId();
 
         Set<Long> parsed = new HashSet<>();
@@ -44,7 +41,7 @@ public class ScheduleTagLinkService {
                 }
                 try {
                     long id = Long.parseLong(raw.trim());
-                    if (scheduleAccessService.canAccessTag(id, actorUserId, defaultIds)
+                    if (scheduleAccessService.canAccessTag(id, actorUserId)
                             || id == etcId) {
                         parsed.add(id);
                     }

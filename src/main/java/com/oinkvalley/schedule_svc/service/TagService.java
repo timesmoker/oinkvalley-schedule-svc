@@ -1,6 +1,5 @@
 package com.oinkvalley.schedule_svc.service;
 
-import com.oinkvalley.schedule_svc.config.CalendarProperties;
 import com.oinkvalley.schedule_svc.db.domain.CalendarUser;
 import com.oinkvalley.schedule_svc.db.domain.Schedule;
 import com.oinkvalley.schedule_svc.db.domain.ScheduleTag;
@@ -22,16 +21,15 @@ import jakarta.transaction.Transactional;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
-/** 태그 목록·생성·숨김 및 소유자 ETC 태그 보장. */
+/** 태그 목록·생성·구독·숨김(tag_members) 및 소유자 ETC 태그 보장. 소유자 구독 행은 DB 트리거가 만든다. */
 @Service
 @RequiredArgsConstructor
 @Transactional
@@ -52,42 +50,17 @@ public class TagService {
     private final TagMemberRepository tagMemberRepository;
     private final ScheduleRepository scheduleRepository;
     private final ScheduleTagRepository scheduleTagRepository;
-    private final ScheduleAccessService scheduleAccessService;
-    private final CalendarProperties calendarProperties;
-    private final UserHiddenTagService userHiddenTagService;
 
     @Transactional(Transactional.TxType.SUPPORTS)
     public TagListResponse listForUser(Long userId) {
-        List<Long> defaultIds = calendarProperties.defaultVisibleTagIds();
-        Map<Long, Tag> byId = new LinkedHashMap<>();
+        Set<Long> hiddenIds = new HashSet<>(tagMemberRepository.findHiddenTagIdsByUserId(userId));
 
-        for (Tag tag : tagRepository.findByOwnerId(userId)) {
-            byId.put(tag.getId(), tag);
-        }
-        for (Long tagId : tagMemberRepository.findTagIdsByUserId(userId)) {
-            tagRepository.findById(tagId).ifPresent(t -> byId.put(t.getId(), t));
-        }
-        for (Tag tag : tagRepository.findAll()) {
-            if (tag.getVisibility() == Visibility.PUBLIC) {
-                byId.put(tag.getId(), tag);
-            }
-        }
-        for (Long tagId : defaultIds) {
-            tagRepository.findById(tagId).ifPresent(t -> byId.put(t.getId(), t));
-        }
-
-        Set<Long> hiddenIds = userHiddenTagService.hiddenTagIdsForUser(userId);
-
-        List<Tag> accessible = byId.values().stream()
-                .filter(t -> scheduleAccessService.canAccessTag(t.getId(), userId, defaultIds))
+        List<TagResponse> tags = tagRepository.findListedForUser(userId).stream()
                 .sorted(TAG_DISPLAY_ORDER)
-                .toList();
-
-        List<TagResponse> tags = accessible.stream()
                 .map(t -> toResponse(t, hiddenIds.contains(t.getId())))
                 .toList();
 
-        return new TagListResponse(tags, defaultIds);
+        return new TagListResponse(tags);
     }
 
     /** 이메일로 사용자의 공개·공유(`SHARED`/`PUBLIC`) USER 태그 검색 */
@@ -151,8 +124,14 @@ public class TagService {
         return toResponse(tag, false);
     }
 
+    /** 숨김 목록 통째 교체 — 구독 중인 태그에만 적용 */
     public void setHiddenTags(Long userId, List<Long> tagIds) {
-        userHiddenTagService.replaceHiddenTags(userId, tagIds);
+        List<Long> ids = tagIds == null ? List.of() : tagIds.stream().filter(id -> id != null).distinct().toList();
+        if (ids.isEmpty()) {
+            tagMemberRepository.showAll(userId);
+        } else {
+            tagMemberRepository.replaceHidden(userId, ids);
+        }
     }
 
     public TagResponse updateVisibility(Long userId, long tagId, String rawVisibility) {
@@ -169,7 +148,7 @@ public class TagService {
             visibility = Visibility.SHARED;
         }
         tag.updateVisibility(visibility);
-        boolean hidden = userHiddenTagService.hiddenTagIdsForUser(userId).contains(tagId);
+        boolean hidden = isHidden(tagId, userId);
         return toResponse(tag, hidden);
     }
 
@@ -206,15 +185,11 @@ public class TagService {
         tagRepository.delete(tag);
     }
 
+    /** 구독 중인 태그 숨김/표시. 구독하지 않은 태그는 404 */
     public void setTagHidden(Long userId, long tagId, boolean hidden) {
-        List<Long> defaultIds = calendarProperties.defaultVisibleTagIds();
-        if (!tagRepository.existsById(tagId)) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Tag not found: " + tagId);
+        if (tagMemberRepository.updateHidden(tagId, userId, hidden) == 0) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Tag not subscribed: " + tagId);
         }
-        if (!scheduleAccessService.canAccessTag(tagId, userId, defaultIds)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Cannot hide inaccessible tag: " + tagId);
-        }
-        userHiddenTagService.setTagHidden(userId, tagId, hidden);
     }
 
     public TagResponse rename(Long userId, long tagId, String rawName) {
@@ -231,21 +206,19 @@ public class TagService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Tag name is required");
         }
         tag.updateName(name);
-        boolean hidden = userHiddenTagService.hiddenTagIdsForUser(userId).contains(tagId);
+        boolean hidden = isHidden(tagId, userId);
         return toResponse(tag, hidden);
     }
 
-    /** SHARED/PUBLIC 태그를 내 목록에 추가 — `tag_members` 등록 + 숨김 해제 */
+    /** SHARED/PUBLIC 태그 구독 — `tag_members` 등록(이미 있으면 숨김 해제) */
     public TagResponse followTag(Long userId, long tagId) {
         Tag tag = requireFollowableTag(tagId);
-        if (tag.getOwnerId() != userId && tag.getVisibility() == Visibility.SHARED) {
-            ensureTagMember(tagId, userId);
-        }
-        userHiddenTagService.setTagHidden(userId, tagId, false);
+        ensureTagMember(tagId, userId);
+        tagMemberRepository.updateHidden(tagId, userId, false);
         return toResponse(tag, false);
     }
 
-    /** 가져온 태그 제거 — 멤버십 해제 + 숨김 */
+    /** 가져온 태그 구독 해제 — `tag_members` 행 삭제 */
     public void unfollowTag(Long userId, long tagId) {
         Tag tag = tagRepository.findById(tagId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Tag not found: " + tagId));
@@ -253,7 +226,6 @@ public class TagService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Cannot unfollow your own tag");
         }
         tagMemberRepository.deleteByTagIdAndUserId(tagId, userId);
-        userHiddenTagService.setTagHidden(userId, tagId, true);
     }
 
     public TagResponse addMember(Long ownerId, long tagId, String memberEmail) {
@@ -274,7 +246,7 @@ public class TagService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Owner is already the tag owner");
         }
         ensureTagMember(tagId, member.getId());
-        boolean hidden = userHiddenTagService.hiddenTagIdsForUser(ownerId).contains(tagId);
+        boolean hidden = isHidden(tagId, ownerId);
         return toResponse(tag, hidden);
     }
 
@@ -283,6 +255,9 @@ public class TagService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Tag not found: " + tagId));
         if (tag.getOwnerId() != ownerId) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the tag owner can remove members");
+        }
+        if (memberUserId == ownerId) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Owner cannot be removed from own tag");
         }
         tagMemberRepository.deleteByTagIdAndUserId(tagId, memberUserId);
     }
@@ -298,7 +273,7 @@ public class TagService {
     }
 
     /**
-     * 게스트 부트스트랩: 지정 소유자의 태그 구독({@code tag_members}·숨김 해제).
+     * 게스트 부트스트랩: 지정 소유자의 태그 구독({@code tag_members}).
      * 태그 없음·소유자 불일치·PRIVATE 는 무시.
      */
     public void followOwnerTagIfAllowed(Long userId, long ownerUserId, long tagId) {
@@ -329,6 +304,10 @@ public class TagService {
                         .type(TagType.USER)
                         .visibility(Visibility.PRIVATE)
                         .build()));
+    }
+
+    private boolean isHidden(long tagId, long userId) {
+        return tagMemberRepository.findHidden(tagId, userId).orElse(false);
     }
 
     private TagResponse toResponse(Tag tag, boolean hidden) {

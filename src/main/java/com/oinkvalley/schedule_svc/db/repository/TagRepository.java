@@ -23,6 +23,15 @@ public interface TagRepository extends JpaRepository<Tag, Long> {
 
 	Optional<Tag> findByOwnerIdAndName(Long ownerId, String name);
 
+	/** 사용자 태그 목록: 구독(tag_members) 중인 태그 — 내 태그 + PRIVATE 가 아닌 남의 태그. 숨긴 태그 포함 */
+	@Query(nativeQuery = true, value = """
+			SELECT t.* FROM tags t
+			JOIN tag_members m ON m.tag_id = t.id
+			WHERE m.user_id = :userId
+			  AND (t.owner_id = :userId OR t.visibility <> 'PRIVATE')
+			""")
+	List<Tag> findListedForUser(@Param("userId") long userId);
+
 	/**
 	 * `updated_at`은 건드리지 않고 `last_used_at`만 갱신.
 	 * flushAutomatically: 컨텍스트를 비우기 전에 대기 중인 INSERT(예: 태그 삭제 시 ETC 연결)를 먼저 반영한다.

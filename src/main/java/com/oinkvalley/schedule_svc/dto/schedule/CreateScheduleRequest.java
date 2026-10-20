@@ -7,8 +7,8 @@ import java.util.List;
 
 public record CreateScheduleRequest(
 		@NotBlank @Size(max = 200) String title,
-		List<String> tags,
-		List<String> participantEmails,
+		@Size(max = 20) List<String> tags,
+		@Size(max = 50) List<String> participantEmails,
 		@NotBlank String startDate,
 		@NotBlank String endDate,
 		boolean allDay,

@@ -1,6 +1,5 @@
 package com.oinkvalley.schedule_svc.service;
 
-import com.oinkvalley.schedule_svc.config.CalendarProperties;
 import com.oinkvalley.schedule_svc.db.domain.Schedule;
 import com.oinkvalley.schedule_svc.db.domain.Visibility;
 import com.oinkvalley.schedule_svc.db.repository.ScheduleParticipantRepository;
@@ -14,10 +13,10 @@ import jakarta.transaction.Transactional;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -32,10 +31,8 @@ public class ScheduleService {
     private final ScheduleRepository scheduleRepository;
     private final ScheduleTagRepository scheduleTagRepository;
     private final ScheduleParticipantRepository scheduleParticipantRepository;
-    private final ScheduleAccessService scheduleAccessService;
     private final ScheduleTagLinkService scheduleTagLinkService;
     private final ParticipantService participantService;
-    private final CalendarProperties calendarProperties;
 
     @Transactional(Transactional.TxType.SUPPORTS)
     public List<ScheduleResponse> listVisible(
@@ -47,7 +44,6 @@ public class ScheduleService {
     ) {
         Instant rangeStart = CalendarTimeUtil.rangeStart(from);
         Instant rangeEnd = CalendarTimeUtil.rangeEndExclusive(to);
-        List<Long> defaultTagIds = calendarProperties.defaultVisibleTagIds();
         Set<Long> filter = filterTagIds == null ? Set.of() : new HashSet<>(filterTagIds);
         boolean mineOnly = "mine".equalsIgnoreCase(scope);
 
@@ -55,29 +51,19 @@ public class ScheduleService {
             return List.of();
         }
 
-        List<Schedule> candidates = scheduleRepository.findOverlapping(rangeStart, rangeEnd);
-        Set<Long> visibleIds = new LinkedHashSet<>();
-        for (Schedule schedule : candidates) {
-            if (!scheduleAccessService.canView(schedule, userId, defaultTagIds)) {
-                continue;
-            }
-            if (mineOnly && userId != null && !scheduleAccessService.isMine(schedule, userId)) {
-                continue;
-            }
-            if (!filter.isEmpty()) {
-                List<Long> tagIds = scheduleTagRepository.findTagIdsByScheduleId(schedule.getId());
-                boolean matches = tagIds.stream().anyMatch(filter::contains);
-                if (!matches) {
-                    continue;
-                }
-            }
-            visibleIds.add(schedule.getId());
-        }
+        List<Long> visibleIds = userId == null
+                ? scheduleRepository.findPublicIds(rangeStart, rangeEnd)
+                : scheduleRepository.findVisibleIds(userId, rangeStart, rangeEnd);
         if (visibleIds.isEmpty()) {
             return List.of();
         }
 
-        return buildResponses(List.copyOf(visibleIds));
+        return buildResponses(visibleIds, schedule -> {
+            if (mineOnly && !schedule.isMine(userId)) {
+                return false;
+            }
+            return filter.isEmpty() || schedule.tagIds().stream().anyMatch(filter::contains);
+        });
     }
 
     public ScheduleResponse create(Long userId, CreateScheduleRequest request) {
@@ -160,32 +146,41 @@ public class ScheduleService {
         return scheduleRepository.save(schedule);
     }
 
-    private List<ScheduleResponse> buildResponses(List<Long> visibleIdList) {
+    /** 응답 조립 전 일정·태그·참여자를 묶어 둔 것 — scope·태그 필터를 추가 쿼리 없이 적용 */
+    private record LoadedSchedule(Schedule schedule, List<Long> tagIds, List<Long> participantIds) {
+        boolean isMine(Long userId) {
+            return schedule.getOwnerId().equals(userId) || participantIds.contains(userId);
+        }
+    }
+
+    private List<ScheduleResponse> buildResponses(List<Long> visibleIdList, Predicate<LoadedSchedule> include) {
         List<Schedule> schedules = scheduleRepository.findAllById(visibleIdList);
         var scheduleTags = scheduleTagRepository.findByScheduleIdIn(visibleIdList);
         var participants = scheduleParticipantRepository.findByScheduleIdIn(visibleIdList);
         Map<Long, List<Long>> tagsBySchedule = ScheduleMapper.tagIdsBySchedule(scheduleTags);
         Map<Long, List<Long>> participantsBySchedule = ScheduleMapper.participantIdsBySchedule(participants);
 
+        List<LoadedSchedule> loaded = schedules.stream()
+                .map(e -> new LoadedSchedule(
+                        e,
+                        tagsBySchedule.getOrDefault(e.getId(), List.of()),
+                        participantsBySchedule.getOrDefault(e.getId(), List.of())))
+                .filter(include)
+                .toList();
+
         Set<Long> allParticipantIds = new HashSet<>();
-        for (List<Long> ids : participantsBySchedule.values()) {
-            allParticipantIds.addAll(ids);
+        for (LoadedSchedule l : loaded) {
+            allParticipantIds.addAll(l.participantIds());
         }
         Map<Long, String> emailByUserId = participantService.emailByUserId(new ArrayList<>(allParticipantIds));
 
-        return schedules.stream()
-                .map(e -> {
-                    List<Long> pids = participantsBySchedule.getOrDefault(e.getId(), List.of());
-                    List<String> emails = pids.stream()
+        return loaded.stream()
+                .map(l -> {
+                    List<String> emails = l.participantIds().stream()
                             .map(id -> emailByUserId.getOrDefault(id, ""))
                             .filter(s -> !s.isBlank())
                             .toList();
-                    return ScheduleMapper.toResponse(
-                            e,
-                            tagsBySchedule.getOrDefault(e.getId(), List.of()),
-                            pids,
-                            emails
-                    );
+                    return ScheduleMapper.toResponse(l.schedule(), l.tagIds(), l.participantIds(), emails);
                 })
                 .toList();
     }
