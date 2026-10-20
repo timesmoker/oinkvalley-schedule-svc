@@ -23,8 +23,11 @@ public interface TagRepository extends JpaRepository<Tag, Long> {
 
 	Optional<Tag> findByOwnerIdAndName(Long ownerId, String name);
 
-	/** `updated_at`은 건드리지 않고 `last_used_at`만 갱신 */
-	@Modifying(clearAutomatically = true)
+	/**
+	 * `updated_at`은 건드리지 않고 `last_used_at`만 갱신.
+	 * flushAutomatically: 컨텍스트를 비우기 전에 대기 중인 INSERT(예: 태그 삭제 시 ETC 연결)를 먼저 반영한다.
+	 */
+	@Modifying(clearAutomatically = true, flushAutomatically = true)
 	@Query("UPDATE Tag t SET t.lastUsedAt = :usedAt WHERE t.id = :id")
 	void updateLastUsedAt(@Param("id") Long id, @Param("usedAt") Instant usedAt);
 }
