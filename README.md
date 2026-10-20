@@ -1,6 +1,6 @@
 # schedule-svc
 
-Spring Boot **일정(스케줄)·태그 REST API**다. PostgreSQL에 `tags`, `tag_members`, `schedules`, `schedule_tags`, `schedule_participants`, `user_hidden_tags` 를 두고, **JWT(HS256)** 로 상태 없이 인증한다. 클라이언트는 **`Authorization: Bearer <token>`** 만내며, 쿠키에 실린 토큰은 이 서비스에서 직접 읽지 않는다.
+Spring Boot **일정(스케줄)·태그 REST API**다. PostgreSQL에 `tags`, `tag_members`, `schedules`, `schedule_tags`, `schedule_participants` 를 두고 (`tag_members` = 태그 구독·숨김), **JWT(HS256)** 로 상태 없이 인증한다. 클라이언트는 **`Authorization: Bearer <token>`** 만내며, 쿠키에 실린 토큰은 이 서비스에서 직접 읽지 않는다.
 
 의존성·JDK·플러그인 버전은 **[build.gradle](build.gradle)** 을 본다.
 
@@ -39,7 +39,6 @@ Spring Boot **일정(스케줄)·태그 REST API**다. PostgreSQL에 `tags`, `ta
 | `SPRING_JPA_PROPERTIES_HIBERNATE_DEFAULT_SCHEMA` | `spring.jpa.properties.hibernate.default_schema` | Hibernate 기본 스키마 |
 | `SPRING_JPA_HIBERNATE_DDL_AUTO` | `spring.jpa.hibernate.ddl-auto` | 예: `validate` (기본값 `validate`) |
 | `JWT_SECRET` | `jwt.secret` | HS256 검증용 비밀키. **auth-svc 와 동일 값** |
-| `CALENDAR_DEFAULT_VISIBLE_TAG_IDS` | `calendar.default-visible-tag-ids` | 쉼표 구분, 캘린더 기본 노출 태그 ID |
 | `SERVICE_PROFILE_GRPC_TARGET` | `spring.grpc.client.channel.profile.target` | profile-svc gRPC (ClusterIP) |
 
 **JWT:** 이 서비스는 토큰을 **검증만** 한다. `sub` 는 사용자 ID(숫자 문자열), `roles` 는 `ROLE_` 접두사 없이 JWT에 담기고 필터에서 스프링 규약에 맞게 변환한다.

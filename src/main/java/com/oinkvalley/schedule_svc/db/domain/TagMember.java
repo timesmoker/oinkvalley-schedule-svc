@@ -25,6 +25,11 @@ public class TagMember {
 	@Column(name = "user_id", nullable = false)
 	private Long userId;
 
+	/** 구독은 유지하되 이 태그로 들어오는 일정을 달력에서 받지 않음 */
+	@Column(name = "hidden", nullable = false)
+	@Builder.Default
+	private boolean hidden = false;
+
 	@Column(name = "created_at", updatable = false)
 	private Instant createdAt;
 

@@ -6,6 +6,7 @@ import com.oinkvalley.schedule_svc.dto.guest.GuestCalendarSubscribeSpec;
 import com.oinkvalley.schedule_svc.db.domain.Schedule;
 import com.oinkvalley.schedule_svc.db.domain.Visibility;
 import com.oinkvalley.schedule_svc.db.repository.ScheduleRepository;
+import com.oinkvalley.schedule_svc.util.CalendarTimeUtil;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
