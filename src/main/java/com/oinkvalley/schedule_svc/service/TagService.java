@@ -241,7 +241,7 @@ public class TagService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Private tags cannot have members");
         }
         CalendarUser member = calendarUserRepository.findByEmailIgnoreCase(memberEmail.trim())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found: " + memberEmail));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
         if (member.getId() == ownerId) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Owner is already the tag owner");
         }

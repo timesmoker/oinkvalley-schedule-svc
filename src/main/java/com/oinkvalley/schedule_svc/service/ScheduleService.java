@@ -1,10 +1,14 @@
 package com.oinkvalley.schedule_svc.service;
 
 import com.oinkvalley.schedule_svc.db.domain.Schedule;
+import com.oinkvalley.schedule_svc.db.domain.ScheduleTag;
+import com.oinkvalley.schedule_svc.db.domain.Tag;
 import com.oinkvalley.schedule_svc.db.domain.Visibility;
 import com.oinkvalley.schedule_svc.db.repository.ScheduleParticipantRepository;
 import com.oinkvalley.schedule_svc.db.repository.ScheduleRepository;
 import com.oinkvalley.schedule_svc.db.repository.ScheduleTagRepository;
+import com.oinkvalley.schedule_svc.db.repository.TagMemberRepository;
+import com.oinkvalley.schedule_svc.db.repository.TagRepository;
 import com.oinkvalley.schedule_svc.dto.schedule.CreateScheduleRequest;
 import com.oinkvalley.schedule_svc.dto.schedule.ScheduleResponse;
 import com.oinkvalley.schedule_svc.dto.schedule.UpdateScheduleRequest;
@@ -31,6 +35,8 @@ public class ScheduleService {
     private final ScheduleRepository scheduleRepository;
     private final ScheduleTagRepository scheduleTagRepository;
     private final ScheduleParticipantRepository scheduleParticipantRepository;
+    private final TagRepository tagRepository;
+    private final TagMemberRepository tagMemberRepository;
     private final ScheduleTagLinkService scheduleTagLinkService;
     private final ParticipantService participantService;
 
@@ -58,7 +64,7 @@ public class ScheduleService {
             return List.of();
         }
 
-        return buildResponses(visibleIds, schedule -> {
+        return buildResponses(userId, visibleIds, schedule -> {
             if (mineOnly && !schedule.isMine(userId)) {
                 return false;
             }
@@ -153,11 +159,17 @@ public class ScheduleService {
         }
     }
 
-    private List<ScheduleResponse> buildResponses(List<Long> visibleIdList, Predicate<LoadedSchedule> include) {
+    private List<ScheduleResponse> buildResponses(
+            Long viewerId,
+            List<Long> visibleIdList,
+            Predicate<LoadedSchedule> include
+    ) {
         List<Schedule> schedules = scheduleRepository.findAllById(visibleIdList);
         var scheduleTags = scheduleTagRepository.findByScheduleIdIn(visibleIdList);
         var participants = scheduleParticipantRepository.findByScheduleIdIn(visibleIdList);
-        Map<Long, List<Long>> tagsBySchedule = ScheduleMapper.tagIdsBySchedule(scheduleTags);
+        Set<Long> viewableTagIds = viewableTagIds(viewerId, scheduleTags);
+        Map<Long, List<Long>> tagsBySchedule = ScheduleMapper.tagIdsBySchedule(
+                scheduleTags.stream().filter(link -> viewableTagIds.contains(link.getTagId())).toList());
         Map<Long, List<Long>> participantsBySchedule = ScheduleMapper.participantIdsBySchedule(participants);
 
         List<LoadedSchedule> loaded = schedules.stream()
@@ -170,19 +182,54 @@ public class ScheduleService {
 
         Set<Long> allParticipantIds = new HashSet<>();
         for (LoadedSchedule l : loaded) {
-            allParticipantIds.addAll(l.participantIds());
+            if (l.schedule().getOwnerId().equals(viewerId)) {
+                allParticipantIds.addAll(l.participantIds());
+            }
         }
         Map<Long, String> emailByUserId = participantService.emailByUserId(new ArrayList<>(allParticipantIds));
 
         return loaded.stream()
                 .map(l -> {
-                    List<String> emails = l.participantIds().stream()
-                            .map(id -> emailByUserId.getOrDefault(id, ""))
-                            .filter(s -> !s.isBlank())
-                            .toList();
+                    // 참여자: 비로그인에게는 아무것도, 이메일은 일정 소유자(수정 화면)에게만
+                    if (viewerId == null) {
+                        return ScheduleMapper.toResponse(l.schedule(), l.tagIds(), List.of(), List.of());
+                    }
+                    List<String> emails = l.schedule().getOwnerId().equals(viewerId)
+                            ? l.participantIds().stream()
+                                    .map(id -> emailByUserId.getOrDefault(id, ""))
+                                    .filter(s -> !s.isBlank())
+                                    .toList()
+                            : List.of();
                     return ScheduleMapper.toResponse(l.schedule(), l.tagIds(), l.participantIds(), emails);
                 })
                 .toList();
+    }
+
+    /**
+     * 일정에 붙은 태그 중 보는 사람이 접근할 수 있는 것만 (남의 PRIVATE 태그·구독 안 한 SHARED 태그는 응답에서 뺀다).
+     * 규칙은 {@link ScheduleAccessService#canAccessTag} 와 같다. 쿼리 2번(태그, 내 구독).
+     */
+    private Set<Long> viewableTagIds(Long viewerId, List<ScheduleTag> links) {
+        Set<Long> tagIds = new HashSet<>();
+        for (ScheduleTag link : links) {
+            tagIds.add(link.getTagId());
+        }
+        if (tagIds.isEmpty()) {
+            return Set.of();
+        }
+        Set<Long> subscribed = viewerId == null
+                ? Set.of()
+                : new HashSet<>(tagMemberRepository.findTagIdsByUserId(viewerId));
+        Set<Long> viewable = new HashSet<>();
+        for (Tag tag : tagRepository.findAllById(tagIds)) {
+            boolean ok = tag.getVisibility() == Visibility.PUBLIC
+                    || (viewerId != null && tag.getOwnerId() == viewerId.longValue())
+                    || (tag.getVisibility() == Visibility.SHARED && subscribed.contains(tag.getId()));
+            if (ok) {
+                viewable.add(tag.getId());
+            }
+        }
+        return viewable;
     }
 
     private ScheduleResponse toResponse(Schedule schedule, List<Long> tagIds, List<Long> participantIds) {
