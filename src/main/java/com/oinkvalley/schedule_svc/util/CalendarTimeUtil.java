@@ -66,8 +66,12 @@ public final class CalendarTimeUtil {
         return instant.atZone(ZONE).toLocalTime().format(TIME);
     }
 
+    /** 종일 = 시작·끝이 모두 {@link #ZONE} 0시 (끝은 다음 날 0시, 배타). 24시간 넘는 시간 일정은 종일이 아님 */
     public static boolean isAllDaySpan(Instant start, Instant end) {
-        long seconds = end.getEpochSecond() - start.getEpochSecond();
-        return seconds >= 24 * 60 * 60 - 60;
+        return end.isAfter(start) && isMidnight(start) && isMidnight(end);
+    }
+
+    private static boolean isMidnight(Instant instant) {
+        return instant.atZone(ZONE).toLocalTime().equals(LocalTime.MIDNIGHT);
     }
 }
