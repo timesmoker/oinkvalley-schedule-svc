@@ -2,7 +2,7 @@ package com.oinkvalley.schedule_svc.config;
 
 import com.oinkvalley.schedule_svc.dto.guest.GuestCalendarSampleSpec;
 import com.oinkvalley.schedule_svc.dto.guest.GuestCalendarSubscribeSpec;
-import com.oinkvalley.schedule_svc.service.CalendarTimeUtil;
+import com.oinkvalley.schedule_svc.util.CalendarTimeUtil;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;

@@ -1,4 +1,4 @@
-package com.oinkvalley.schedule_svc.service;
+package com.oinkvalley.schedule_svc.util;
 
 import java.time.Instant;
 import java.time.LocalDate;

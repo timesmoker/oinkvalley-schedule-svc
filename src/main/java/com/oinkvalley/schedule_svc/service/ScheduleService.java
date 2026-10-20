@@ -9,6 +9,7 @@ import com.oinkvalley.schedule_svc.db.repository.ScheduleTagRepository;
 import com.oinkvalley.schedule_svc.dto.schedule.CreateScheduleRequest;
 import com.oinkvalley.schedule_svc.dto.schedule.ScheduleResponse;
 import com.oinkvalley.schedule_svc.dto.schedule.UpdateScheduleRequest;
+import com.oinkvalley.schedule_svc.util.CalendarTimeUtil;
 import jakarta.transaction.Transactional;
 import java.time.Instant;
 import java.util.ArrayList;
